@@ -1,4 +1,4 @@
-name: Build Fishhook Static Library (Xcode 16+)
+name: Build Fishhook XCFramework (Xcode 16.4 Compatible)
 
 on:
   push:
@@ -10,102 +10,132 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      MIN_IOS_VERSION: "9.0"
+      MIN_MACOS_VERSION: "10.11"
+      BUILD_DIR: "./build"
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        # 拉取官方源码替换：
+        # 若需拉取官方Fishhook源码，替换为：
         # run: |
         #   git clone https://github.com/facebook/fishhook.git && cd fishhook
 
       - name: Setup Xcode Environment
         run: |
+          # 强制使用Xcode 16.4（Runner默认可能有多个版本）
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
           xcodebuild -version
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-          sudo xcodebuild -license accept # 确保Xcode许可已同意
+          sudo xcodebuild -license accept
           # 验证SDK路径
-          echo "macOS SDK: $(xcrun --show-sdk-path --sdk macosx)"
           echo "iOS Sim SDK: $(xcrun --show-sdk-path --sdk iphonesimulator)"
           echo "iOS Device SDK: $(xcrun --show-sdk-path --sdk iphoneos)"
+          echo "macOS SDK: $(xcrun --show-sdk-path --sdk macosx)"
 
-      - name: Compile Single-Architecture Static Libraries
+      - name: Create Build Directories
         run: |
-          # 定义最低支持版本
-          MIN_IOS_VERSION="9.0"
-          MIN_MACOS_VERSION="10.11"
-          # 创建临时目录存放不同平台库
-          mkdir -p build/ios-sim build/ios-device build/macos
+          mkdir -p ${BUILD_DIR}/ios-sim/x86_64 \
+                   ${BUILD_DIR}/ios-sim/arm64 \
+                   ${BUILD_DIR}/ios-device/arm64 \
+                   ${BUILD_DIR}/macos/x86_64 \
+                   ${BUILD_DIR}/macos/arm64
 
-          # ==================== macOS 编译 ====================
-          # 1. macOS x86_64
+      - name: Compile Single-Architecture Object Files
+        run: |
+          # ==================== macOS 单架构编译 ====================
+          # macOS x86_64
           clang -c fishhook.c \
-            -o build/macos/fishhook_macos_x86_64.o \
+            -o ${BUILD_DIR}/macos/x86_64/fishhook.o \
             -arch x86_64 \
             -isysroot $(xcrun --show-sdk-path --sdk macosx) \
             -mmacosx-version-min=${MIN_MACOS_VERSION}
-          ar rcs build/macos/libfishhook_macos_x86_64.a build/macos/fishhook_macos_x86_64.o
+          ar rcs ${BUILD_DIR}/macos/x86_64/libfishhook.a ${BUILD_DIR}/macos/x86_64/fishhook.o
 
-          # 2. macOS arm64
+          # macOS arm64
           clang -c fishhook.c \
-            -o build/macos/fishhook_macos_arm64.o \
+            -o ${BUILD_DIR}/macos/arm64/fishhook.o \
             -arch arm64 \
             -isysroot $(xcrun --show-sdk-path --sdk macosx) \
             -mmacosx-version-min=${MIN_MACOS_VERSION}
-          ar rcs build/macos/libfishhook_macos_arm64.a build/macos/fishhook_macos_arm64.o
+          ar rcs ${BUILD_DIR}/macos/arm64/libfishhook.a ${BUILD_DIR}/macos/arm64/fishhook.o
 
-          # 合并macOS通用库
-          lipo -create \
-            build/macos/libfishhook_macos_x86_64.a \
-            build/macos/libfishhook_macos_arm64.a \
-            -output libfishhook_macos.a
-
-          # ==================== iOS 模拟器编译 (仅x86_64+arm64) ====================
+          # ==================== iOS 模拟器单架构编译 ====================
+          # iOS Sim x86_64
           clang -c fishhook.c \
-            -o build/ios-sim/fishhook_ios_sim.o \
-            -arch x86_64 -arch arm64 \
+            -o ${BUILD_DIR}/ios-sim/x86_64/fishhook.o \
+            -arch x86_64 \
             -isysroot $(xcrun --show-sdk-path --sdk iphonesimulator) \
             -mios-version-min=${MIN_IOS_VERSION}
-          ar rcs build/ios-sim/libfishhook_ios_sim.a build/ios-sim/fishhook_ios_sim.o
+          ar rcs ${BUILD_DIR}/ios-sim/x86_64/libfishhook.a ${BUILD_DIR}/ios-sim/x86_64/fishhook.o
 
-          # ==================== iOS 真机编译 (仅arm64) ====================
+          # iOS Sim arm64
           clang -c fishhook.c \
-            -o build/ios-device/fishhook_ios_device.o \
+            -o ${BUILD_DIR}/ios-sim/arm64/fishhook.o \
+            -arch arm64 \
+            -isysroot $(xcrun --show-sdk-path --sdk iphonesimulator) \
+            -mios-version-min=${MIN_IOS_VERSION}
+          ar rcs ${BUILD_DIR}/ios-sim/arm64/libfishhook.a ${BUILD_DIR}/ios-sim/arm64/fishhook.o
+
+          # ==================== iOS 真机单架构编译 ====================
+          # iOS Device arm64
+          clang -c fishhook.c \
+            -o ${BUILD_DIR}/ios-device/arm64/fishhook.o \
             -arch arm64 \
             -isysroot $(xcrun --show-sdk-path --sdk iphoneos) \
             -mios-version-min=${MIN_IOS_VERSION}
-          ar rcs build/ios-device/libfishhook_ios_device.a build/ios-device/fishhook_ios_device.o
+          ar rcs ${BUILD_DIR}/ios-device/arm64/libfishhook.a ${BUILD_DIR}/ios-device/arm64/fishhook.o
 
-          # ==================== 关键：打包XCFramework（替代lipo合并） ====================
-          # XCFramework能区分模拟器/真机的arm64，解决Xcode 16+冲突
-          xcodebuild -create-xcframework \
-            -library build/ios-sim/libfishhook_ios_sim.a \
-            -headers ./ \
-            -library build/ios-device/libfishhook_ios_device.a \
-            -headers ./ \
-            -output Fishhook.xcframework
+      - name: Merge Single-Architecture Libraries (Per Platform)
+        run: |
+          # 合并macOS多架构库（单平台内的胖文件，无警告）
+          lipo -create \
+            ${BUILD_DIR}/macos/x86_64/libfishhook.a \
+            ${BUILD_DIR}/macos/arm64/libfishhook.a \
+            -output libfishhook_macos.a
 
-          # 复制单独的库到根目录（方便使用）
-          cp build/ios-sim/libfishhook_ios_sim.a ./
-          cp build/ios-device/libfishhook_ios_device.a ./
+          # 合并iOS模拟器多架构库（单平台内的胖文件，解决ranlib警告）
+          lipo -create \
+            ${BUILD_DIR}/ios-sim/x86_64/libfishhook.a \
+            ${BUILD_DIR}/ios-sim/arm64/libfishhook.a \
+            -output ${BUILD_DIR}/ios-sim/libfishhook_ios_sim.a
 
-          # 验证架构
+          # iOS真机仅arm64，直接复制
+          cp ${BUILD_DIR}/ios-device/arm64/libfishhook.a ${BUILD_DIR}/ios-device/libfishhook_ios_device.a
+
+          # 验证单平台库架构（无跨平台问题）
           echo "=== macOS 库架构 ==="
           lipo -info libfishhook_macos.a
           echo "=== iOS 模拟器库架构 ==="
-          lipo -info libfishhook_ios_sim.a
+          lipo -info ${BUILD_DIR}/ios-sim/libfishhook_ios_sim.a
           echo "=== iOS 真机库架构 ==="
-          lipo -info libfishhook_ios_device.a
-          echo "=== XCFramework 结构 ==="
-          xcodebuild -show-sdk-platform-path --sdk iphonesimulator
-          ls -l Fishhook.xcframework/
+          lipo -info ${BUILD_DIR}/ios-device/libfishhook_ios_device.a
 
-      - name: Upload Artifacts
+      - name: Create XCFramework (No Platform Conflict)
+        run: |
+          # 基于单平台库创建XCFramework，彻底解决架构冲突
+          xcodebuild -create-xcframework \
+            -library ${BUILD_DIR}/ios-sim/libfishhook_ios_sim.a \
+            -headers ./ \
+            -library ${BUILD_DIR}/ios-device/libfishhook_ios_device.a \
+            -headers ./ \
+            -output Fishhook.xcframework
+
+          # 复制模拟器/真机库到根目录（方便单独使用）
+          cp ${BUILD_DIR}/ios-sim/libfishhook_ios_sim.a ./
+          cp ${BUILD_DIR}/ios-device/libfishhook_ios_device.a ./
+
+          # 验证XCFramework结构
+          echo "=== XCFramework 详情 ==="
+          xcodebuild -showxcframework -xcframework Fishhook.xcframework
+
+      - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fishhook-static-libs-xcframework
+          name: fishhook-xcframework-16.4
           path: |
+            Fishhook.xcframework/
             libfishhook_macos.a
             libfishhook_ios_sim.a
             libfishhook_ios_device.a
-            Fishhook.xcframework/
             fishhook.h
