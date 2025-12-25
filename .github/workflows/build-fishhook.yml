@@ -17,67 +17,237 @@ jobs:
       TARGET_NAME: "Fishhook"
       BUILD_DIR: "./build"
       PRODUCTS_DIR: "./products"
+      PROJECT_PATH: "${{ env.BUILD_DIR }}/${{ env.PROJECT_NAME }}.xcodeproj"
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        # 拉取官方Fishhook源码（若你的仓库无源码，取消注释）
+        # 拉取官方Fishhook源码（若仓库无源码，取消注释）
         # run: |
         #   git clone https://github.com/facebook/fishhook.git && cd fishhook
 
       - name: Setup Xcode Environment
         run: |
-          # 强制绑定Xcode 16.4（关键：固定版本避免校验规则不一致）
+          # 强制绑定Xcode 16.4
           sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
           xcodebuild -version
           sudo xcodebuild -license accept
-          # 验证平台
-          echo "iOS Platform: $(xcrun --show-sdk-platform-path --sdk iphoneos)"
-          echo "iOS Sim Platform: $(xcrun --show-sdk-platform-path --sdk iphonesimulator)"
+          # 验证SDK
+          echo "iOS Sim SDK: $(xcrun --show-sdk-path --sdk iphonesimulator)"
+          echo "iOS Device SDK: $(xcrun --show-sdk-path --sdk iphoneos)"
 
-      - name: Create Temporary Xcode Project (Auto-Generated)
+      - name: Create Minimal Xcode Project (Manual pbxproj)
         run: |
-          # 创建工程目录
-          mkdir -p ${BUILD_DIR}
-          cd ${BUILD_DIR}
+          # 1. 创建工程目录结构
+          mkdir -p ${PROJECT_PATH}/project.pbxproj
+          mkdir -p ${BUILD_DIR}/src
+          cp fishhook.c ${BUILD_DIR}/src/
+          cp fishhook.h ${BUILD_DIR}/src/
 
-          # 1. 创建静态库工程（iOS + macOS）
-          xcodebuild -create-project \
-            -name ${PROJECT_NAME} \
-            -platform iOS \
-            -language C \
-            -target ${TARGET_NAME} \
-            -template StaticLibrary \
-            ${PROJECT_NAME}.xcodeproj
+          # 2. 生成极简pbxproj文件（Xcode工程核心，兼容16.4）
+          cat > ${PROJECT_PATH}/project.pbxproj << EOF
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
 
-          # 2. 复制Fishhook源码到工程目录
-          cp ../fishhook.c ./
-          cp ../fishhook.h ./
+/* Begin PBXBuildFile section */
+		1D6058900D05DD3D006BFB54 /* fishhook.c in Sources */ = {isa = PBXBuildFile; fileRef = 1D60588F0D05DD3D006BFB54 /* fishhook.c */; };
+		1D6058920D05DD3D006BFB54 /* fishhook.h in Headers */ = {isa = PBXBuildFile; fileRef = 1D6058910D05DD3D006BFB54 /* fishhook.h */; };
+/* End PBXBuildFile section */
 
-          # 3. 修改工程配置（关键：添加源码、设置最低版本、关闭Bitcode）
-          # 生成xcconfig文件统一配置
-          cat > FishhookConfig.xcconfig << EOF
-          IPHONEOS_DEPLOYMENT_TARGET = ${MIN_IOS_VERSION}
-          MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION}
-          ENABLE_BITCODE = NO
-          CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO
-          GCC_WARN_UNUSED_FUNCTION = NO
-          EOF
+/* Begin PBXFileReference section */
+		1D60588F0D05DD3D006BFB54 /* fishhook.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = fishhook.c; sourceTree = "<group>"; };
+		1D6058910D05DD3D006BFB54 /* fishhook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fishhook.h; sourceTree = "<group>"; };
+		1D6058940D05DD3D006BFB54 /* libFishhook.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libFishhook.a; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
 
-          # 4. 将xcconfig关联到target
-          xcodebuild -project ${PROJECT_NAME}.xcodeproj \
-            -target ${TARGET_NAME} \
-            -xcconfig FishhookConfig.xcconfig
+/* Begin PBXGroup section */
+		1D60588E0D05DD3D006BFB54 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				1D60588F0D05DD3D006BFB54 /* fishhook.c */,
+				1D6058910D05DD3D006BFB54 /* fishhook.h */,
+			);
+			path = src;
+			sourceTree = "<group>";
+		};
+		1D6058860D05DD3D006BFB54 = {
+			isa = PBXGroup;
+			children = (
+				1D60588E0D05DD3D006BFB54 /* src */,
+				1D6058870D05DD3D006BFB54 /* Products */,
+			);
+			sourceTree = "<absolute>";
+			path = "${BUILD_DIR}";
+		};
+		1D6058870D05DD3D006BFB54 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1D6058940D05DD3D006BFB54 /* libFishhook.a */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
 
-          # 5. 添加源码到target（替换默认的main.c）
-          xcodebuild -project ${PROJECT_NAME}.xcodeproj \
-            -target ${TARGET_NAME} \
-            add-file fishhook.c fishhook.h
+/* Begin PBXNativeTarget section */
+		1D6058950D05DD3D006BFB54 /* Fishhook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1D60589C0D05DD3D006BFB54 /* Build configuration list for PBXNativeTarget "Fishhook" */;
+			buildPhases = (
+				1D6058960D05DD3D006BFB54 /* Sources */,
+				1D6058970D05DD3D006BFB54 /* Headers */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Fishhook;
+			productName = Fishhook;
+			productReference = 1D6058940D05DD3D006BFB54 /* libFishhook.a */;
+			productType = "com.apple.product-type.library.static";
+		};
+/* End PBXNativeTarget section */
 
-      - name: Build iOS Simulator Version (Xcode Managed)
+/* Begin PBXProject section */
+		1D6058850D05DD3D006BFB54 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1640;
+				ORGANIZATIONNAME = "Facebook";
+				TargetAttributes = {
+					1D6058950D05DD3D006BFB54 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+				};
+			};
+			buildConfigurationList = 1D60588B0D05DD3D006BFB54 /* Build configuration list for PBXProject "FishhookStaticLib" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1D6058860D05DD3D006BFB54;
+			productRefGroup = 1D6058870D05DD3D006BFB54 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1D6058950D05DD3D006BFB54 /* Fishhook */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1D6058960D05DD3D006BFB54 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1D6058900D05DD3D006BFB54 /* fishhook.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXHeadersBuildPhase section */
+		1D6058970D05DD3D006BFB54 /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1D6058920D05DD3D006BFB54 /* fishhook.h in Headers */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		1D60589D0D05DD3D006BFB54 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ENABLE_BITCODE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = ${MIN_IOS_VERSION};
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		1D60589E0D05DD3D006BFB54 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ENABLE_BITCODE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = ${MIN_IOS_VERSION};
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		1D6058890D05DD3D006BFB54 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ENABLE_BITCODE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = ${MIN_IOS_VERSION};
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		1D60588A0D05DD3D006BFB54 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ENABLE_BITCODE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = ${MIN_IOS_VERSION};
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1D60588B0D05DD3D006BFB54 /* Build configuration list for PBXProject "FishhookStaticLib" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1D6058890D05DD3D006BFB54 /* Debug */,
+				1D60588A0D05DD3D006BFB54 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1D60589C0D05DD3D006BFB54 /* Build configuration list for PBXNativeTarget "Fishhook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1D60589D0D05DD3D006BFB54 /* Debug */,
+				1D60589E0D05DD3D006BFB54 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1D6058850D05DD3D006BFB54 /* Project object */;
+}
+EOF
+
+          # 3. 生成xcconfig配置文件（覆盖编译参数）
+          cat > ${BUILD_DIR}/FishhookConfig.xcconfig << EOF
+IPHONEOS_DEPLOYMENT_TARGET = ${MIN_IOS_VERSION}
+MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION}
+ENABLE_BITCODE = NO
+CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO
+GCC_WARN_UNUSED_FUNCTION = NO
+ARCHS = arm64 x86_64
+VALID_ARCHS = arm64 x86_64
+EOF
+
+      - name: Build iOS Simulator Version (Xcode 16.4 Compatible)
         run: |
           cd ${BUILD_DIR}
-          # 编译iOS模拟器库（自动包含x86_64+arm64，带正确平台标识）
+          # 编译iOS模拟器库（带正确平台标识）
           xcodebuild build \
             -project ${PROJECT_NAME}.xcodeproj \
             -target ${TARGET_NAME} \
@@ -85,80 +255,76 @@ jobs:
             -sdk iphonesimulator \
             -arch x86_64 \
             -arch arm64 \
+            -xcconfig FishhookConfig.xcconfig \
             BUILD_DIR=${PRODUCTS_DIR} \
             BUILD_ROOT=${PRODUCTS_DIR} \
             SKIP_INSTALL=NO \
             INSTALL_PATH=/usr/local/lib
 
-      - name: Build iOS Device Version (Xcode Managed)
+      - name: Build iOS Device Version (Xcode 16.4 Compatible)
         run: |
           cd ${BUILD_DIR}
-          # 编译iOS真机库（仅arm64，带正确平台标识）
+          # 编译iOS真机库（带正确平台标识）
           xcodebuild build \
             -project ${PROJECT_NAME}.xcodeproj \
             -target ${TARGET_NAME} \
             -configuration Release \
             -sdk iphoneos \
             -arch arm64 \
+            -xcconfig FishhookConfig.xcconfig \
             BUILD_DIR=${PRODUCTS_DIR} \
             BUILD_ROOT=${PRODUCTS_DIR} \
             SKIP_INSTALL=NO \
             INSTALL_PATH=/usr/local/lib
 
-      - name: Build macOS Universal Version (Xcode Managed)
+      - name: Build macOS Universal Version (Optional)
         run: |
           cd ${BUILD_DIR}
-          # 为macOS添加target（可选，若不需要macOS可删除）
-          xcodebuild -project ${PROJECT_NAME}.xcodeproj \
-            -create-target ${TARGET_NAME}_macOS \
-            -template StaticLibrary \
-            -platform macOS
-
-          # 编译macOS通用库（x86_64+arm64）
+          # 为macOS添加target（无需创建新工程，直接编译）
           xcodebuild build \
             -project ${PROJECT_NAME}.xcodeproj \
-            -target ${TARGET_NAME}_macOS \
+            -target ${TARGET_NAME} \
             -configuration Release \
             -sdk macosx \
             -arch x86_64 \
             -arch arm64 \
+            -xcconfig FishhookConfig.xcconfig \
             BUILD_DIR=${PRODUCTS_DIR} \
             BUILD_ROOT=${PRODUCTS_DIR} \
             SKIP_INSTALL=NO \
-            INSTALL_PATH=/usr/local/lib
+            INSTALL_PATH=/usr/local/lib \
+            MACOSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}
 
-      - name: Create XCFramework (Xcode 16.4 Compatible)
+      - name: Create XCFramework (No Platform Error)
         run: |
-          # 创建产物目录
-          mkdir -p ../final
+          # 创建最终产物目录
+          mkdir -p ./final
           
-          # 查找编译后的库文件（Xcode自动生成，带正确平台标识）
-          SIM_LIB=$(find ${PRODUCTS_DIR} -name "lib${TARGET_NAME}.a" -path "*iphonesimulator*")
-          DEVICE_LIB=$(find ${PRODUCTS_DIR} -name "lib${TARGET_NAME}.a" -path "*iphoneos*")
-          MACOS_LIB=$(find ${PRODUCTS_DIR} -name "lib${TARGET_NAME}_macOS.a" -path "*macosx*")
+          # 查找编译后的库文件（Xcode 16.4 自动生成，带正确平台标识）
+          SIM_LIB=$(find ${PRODUCTS_DIR} -name "lib${TARGET_NAME}.a" -path "*Release-iphonesimulator*")
+          DEVICE_LIB=$(find ${PRODUCTS_DIR} -name "lib${TARGET_NAME}.a" -path "*Release-iphoneos*")
+          MACOS_LIB=$(find ${PRODUCTS_DIR} -name "lib${TARGET_NAME}.a" -path "*Release-macosx*")
 
           # 验证库存在
           if [ ! -f "${SIM_LIB}" ] || [ ! -f "${DEVICE_LIB}" ]; then
             echo "Error: iOS library not found!"
-            ls -l ${PRODUCTS_DIR}
+            ls -lR ${PRODUCTS_DIR}
             exit 1
           fi
 
-          # 关键：用Xcode编译的库创建XCFramework（无多平台错误）
+          # 关键：创建XCFramework（Xcode 16.4 可通过）
           xcodebuild -create-xcframework \
-            -library "${SIM_LIB}" \
-            -headers ../ \
-            -library "${DEVICE_LIB}" \
-            -headers ../ \
-            -output ../final/Fishhook.xcframework
+            -library "${SIM_LIB}" -headers ./ \
+            -library "${DEVICE_LIB}" -headers ./ \
+            -output ./final/Fishhook.xcframework
 
-          # 复制macOS库和头文件到最终目录
-          cp "${MACOS_LIB}" ../final/libfishhook_macos.a 2>/dev/null || true
-          cp ../fishhook.h ../final/
+          # 复制macOS库和头文件
+          cp "${MACOS_LIB}" ./final/libfishhook_macos.a 2>/dev/null || true
+          cp fishhook.h ./final/
 
           # 验证XCFramework
-          echo "=== Final XCFramework Info ==="
-          xcodebuild -showxcframework -xcframework ../final/Fishhook.xcframework
+          echo "=== XCFramework 验证 ==="
+          xcodebuild -showxcframework -xcframework ./final/Fishhook.xcframework
 
       - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
